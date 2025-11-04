@@ -1,85 +1,40 @@
-import express from "express";
-import { createServer } from "http";
-import { fileURLToPath } from 'url';
-import { dirname, resolve } from 'path';
-import { createServer as createViteServer } from 'vite';
+import express, { Request, Response, NextFunction } from "express";
+import { fileURLToPath } from "url";
+import { dirname } from "path";
+import cors from "cors";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-async function createApp() {
-  const app = express();
-  const httpServer = createServer(app);
+const app = express();
 
-  // Basic middleware
-  app.use(express.json());
-  app.use(express.urlencoded({ extended: false }));
-  
-  // Error handling
-  app.use((err: any, _req: express.Request, res: express.Response, next: express.NextFunction) => {
-    console.error('Error:', err);
-    if (res.headersSent) return next(err);
-    res.status(500).json({ error: err.message || 'Internal Server Error' });
+// Enable CORS for development
+app.use(cors());
+
+// Basic middleware
+app.use(express.json());
+app.use(express.urlencoded({ extended: false }));
+
+// API endpoints
+app.get("/api/health", (req: Request, res: Response) => {
+  console.log(`Health check from ${req.ip}`);
+  res.json({
+    status: "ok",
+    timestamp: new Date().toISOString(),
   });
-
-  // API endpoints
-  app.get('/api/health', (req, res) => {
-    console.log(`Health check from ${req.ip}`);
-    res.json({ 
-      status: 'ok',
-      timestamp: new Date().toISOString()
-    });
-  });
-
-  // Create Vite server in middleware mode
-  const vite = await createViteServer({
-    server: { 
-      middlewareMode: true,
-      hmr: { server: httpServer } 
-    },
-    appType: 'custom'
-  });
-
-  // Use vite's connect instance as middleware
-  app.use(vite.middlewares);
-
-  // Serve static files from the dist directory in production
-  if (process.env.NODE_ENV === 'production') {
-    app.use(express.static(resolve(__dirname, '../dist')));
-  }
-
-  // Handle SPA routing - serve index.html for all non-API routes
-  app.use('*', async (req, res, next) => {
-    const url = req.originalUrl;
-
-    try {
-      // Load the index.html file
-      let template = await vite.transformIndexHtml(
-        url,
-        '<div id="root"></div>'
-      );
-
-      res.status(200).set({ 'Content-Type': 'text/html' }).end(template);
-    } catch (e) {
-      if (e instanceof Error) {
-        console.error(e.stack);
-        res.status(500).end(e.stack);
-      } else {
-        next(e);
-      }
-    }
-  });
-
-  return httpServer;
-}
-
-// Start the server
-createApp().then(server => {
-  const port = 3000;
-  server.listen(port, () => {
-    console.log(`Server is running on http://localhost:${port}`);
-  });
-}).catch(err => {
-  console.error('Failed to start server:', err);
-  process.exit(1);
 });
+
+// Error handling middleware (must be last)
+app.use((err: Error, _req: Request, res: Response, next: NextFunction) => {
+  console.error("Error:", err);
+  if (res.headersSent) return next(err);
+  res.status(500).json({ error: err.message || "Internal Server Error" });
+});
+
+// Start server
+const port = process.env.PORT || 3000;
+app.listen(port, () => {
+  console.log(`Server is running on http://localhost:${port}`);
+});
+
+export default app;
