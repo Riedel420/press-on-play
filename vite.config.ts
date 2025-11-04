@@ -9,15 +9,9 @@ const __dirname = path.dirname(__filename);
 export default defineConfig({
   plugins: [react()],
   server: {
-    port: 5173,
-    host: "127.0.0.1", // safer than 0.0.0.0 unless you need LAN access
-    proxy: {
-      "/api": {
-        target: "http://localhost:3000",
-        changeOrigin: true,
-        secure: false,
-      },
-    },
+    port: 3000,
+    strictPort: true,
+    host: true
   },
   resolve: {
     alias: {

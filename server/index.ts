@@ -1,80 +1,78 @@
-import express, { type Request, Response, NextFunction } from "express";
-import { registerRoutes } from "./routes.ts";
-import { setupVite, serveStatic, log } from "./vite.ts";
+import express from "express";
+import { createServer } from "http";
+import { fileURLToPath } from 'url';
+import { dirname, resolve } from 'path';
+import { createServer as createViteServer } from 'vite';
 
-const app = express();
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
-// Basic middleware
-app.use(express.json());
-app.use(express.urlencoded({ extended: false }));
+async function createApp() {
+  const app = express();
+  const httpServer = createServer(app);
 
-// Request logging middleware
-app.use((req, res, next) => {
-  const start = Date.now();
-  const path = req.path;
-  let capturedJsonResponse: Record<string, any> | undefined = undefined;
+  // Basic middleware
+  app.use(express.json());
+  app.use(express.urlencoded({ extended: false }));
 
-  const originalResJson = res.json;
-  res.json = function (bodyJson, ...args) {
-    capturedJsonResponse = bodyJson;
-    return originalResJson.apply(res, [bodyJson, ...args]);
-  };
+  // API endpoints
+  app.get('/api/health', (req, res) => {
+    console.log(`Health check from ${req.ip}`);
+    res.json({ 
+      status: 'ok',
+      timestamp: new Date().toISOString()
+    });
+  });
 
-  res.on("finish", () => {
-    const duration = Date.now() - start;
-    if (path.startsWith("/api")) {
-      let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-      if (capturedJsonResponse) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
+  // Create Vite server in middleware mode
+  const vite = await createViteServer({
+    server: { 
+      middlewareMode: true,
+      hmr: { server: httpServer } 
+    },
+    appType: 'custom'
+  });
+
+  // Use vite's connect instance as middleware
+  app.use(vite.middlewares);
+
+  // Serve static files from the dist directory in production
+  if (process.env.NODE_ENV === 'production') {
+    app.use(express.static(resolve(__dirname, '../dist')));
+  }
+
+  // Handle SPA routing - serve index.html for all non-API routes
+  app.use('*', async (req, res, next) => {
+    const url = req.originalUrl;
+
+    try {
+      // Load the index.html file
+      let template = await vite.transformIndexHtml(
+        url,
+        '<div id="root"></div>'
+      );
+
+      res.status(200).set({ 'Content-Type': 'text/html' }).end(template);
+    } catch (e) {
+      if (e instanceof Error) {
+        console.error(e.stack);
+        res.status(500).end(e.stack);
+      } else {
+        next(e);
       }
-
-      if (logLine.length > 80) {
-        logLine = logLine.slice(0, 79) + "…";
-      }
-
-      log(logLine);
     }
   });
 
-  next();
+  return httpServer;
+}
+
+// Start the server
+createApp().then(server => {
+  const port = 3000;
+  server.listen(port, () => {
+    console.log(`Server is running on http://localhost:${port}`);
+  });
+}).catch(err => {
+  console.error('Failed to start server:', err);
+  process.exit(1);
 });
-
-// Initialize and start server
-(async () => {
-  try {
-    log("Starting server initialization...");
-    
-    const server = await registerRoutes(app);
-
-    // Error handling middleware
-  app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
-    log(`Error caught in middleware: ${err.message || 'Unknown error'}`);
-    if (res.headersSent) {
-      return next(err);
-    }
-    const status = err.status || err.statusCode || 500;
-    const message = err.message || "Internal Server Error";
-    res.status(status).json({ 
-      error: message,
-      timestamp: new Date().toISOString()
-    });
-  });    // Setup Vite middleware in development
-    if (process.env.NODE_ENV !== "production") {
-      log("Setting up Vite middleware for development...");
-      await setupVite(app, server);
-    } else {
-      log("Setting up static file serving for production...");
-      serveStatic(app);
-    }
-
-    // Start server
-    const port = 3000;
-    const host = '0.0.0.0';
-    server.listen(port, host, () => {
-      log(`API server listening on ${host}:${port}`);
-    });
-  } catch (error) {
-    log(`Server initialization error: ${error}`);
-    process.exit(1);
-  }
-})();
