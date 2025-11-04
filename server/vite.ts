@@ -23,28 +23,30 @@ export function log(message: string, source = "express") {
 }
 
 export async function setupVite(app: Express, server: Server) {
-  const serverOptions: ServerOptions = {
-    middlewareMode: true,
-    hmr: { server },
-    allowedHosts: true,
-  };
-
   const vite = await createViteServer({
     ...viteConfig,
-    configFile: false,
+    server: {
+      middlewareMode: true,
+      hmr: { server },
+      host: true // replaces allowedHosts: true
+    },
+    appType: "custom",
     customLogger: {
       ...viteLogger,
       error: (msg, options) => {
-        viteLogger.error(msg, options);
-        process.exit(1);
-      },
-    },
-    server: serverOptions,
-    appType: "custom",
+        if (msg.includes('The CJS build of Vite')) {
+          console.warn(msg); // Downgrade CJS warning to a warning
+        } else {
+          viteLogger.error(msg, options);
+        }
+      }
+    }
   });
 
   app.use(vite.middlewares);
-  app.use("*", async (req, res, next) => {
+
+  // Serve index.html for all non-API routes
+  app.get(/^(?!\/api).*/, async (req, res, next) => {
     const url = req.originalUrl;
 
     try {
@@ -82,7 +84,7 @@ export function serveStatic(app: Express) {
   app.use(express.static(distPath));
 
   // fall through to index.html if the file doesn't exist
-  app.use("*", (_req, res) => {
+  app.get(/^(?!\/api).*/, (_req, res) => {
     res.sendFile(path.resolve(distPath, "index.html"));
   });
 }
