@@ -14,6 +14,13 @@ async function createApp() {
   // Basic middleware
   app.use(express.json());
   app.use(express.urlencoded({ extended: false }));
+  
+  // Error handling
+  app.use((err: any, _req: express.Request, res: express.Response, next: express.NextFunction) => {
+    console.error('Error:', err);
+    if (res.headersSent) return next(err);
+    res.status(500).json({ error: err.message || 'Internal Server Error' });
+  });
 
   // API endpoints
   app.get('/api/health', (req, res) => {
